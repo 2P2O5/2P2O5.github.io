@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+
+  <body>
+    翼课网号：<input /><br />
+    密码：<input /> (若没改过是123456或666666)<br />
+    <button onclick="run(document.querySelectorAll('input'))">启动</button>
+    <button onclick="localStorage.cookies = 'NUL';log('成功！');">清除目前的账号密码</button>
+    <br />
+    <div></div>
+
+    <script src="https://cdn-res.ekwing.com/js/athena/js/jquery.js?v=10040"></script>
+    <script src="https://passport.ekwing.com/resource/js/Comm/jsbn.js"></script>
+    <script src="https://passport.ekwing.com/resource/js/Comm/rsa.js"></script>
+    <script src="https://passport.ekwing.com/resource/js/Comm/jquery.md5.js"></script>
+    <script>
+      // var RSA = new JSEncrypt();
+
+      const out = document.querySelector("div");
+
+      function log(data) {
+        data = data.split("\n").join("<br />");
+        var p = document.createElement("p");
+        p.innerHTML = data;
+        out.appendChild(p);
+      }
+      function post(url, data, callback, headers) {
+        var datas = [];
+        for (var i = 0; i < data.length; i = i + 2) {
+          datas[i / 2] =
+            encodeURIComponent(data[i]) + "=" + encodeURIComponent(data[i + 1]);
+        }
+
+        datas = datas.join("&");
+        $.post(
+          "https://tool.vlwx.com/http/api.php",
+          JSON.stringify({
+            method: "GET",
+            url: url + "?" + datas,
+            body: "",
+            headers: headers,
+          }),
+          callback
+        );
+      }
+
+      function run(inputs) {
+        log("启动成功，请快速等待!");
+        if (localStorage.cookies && localStorage.cookies != "NUL") {
+          console.log("use temp login.");
+          return main(localStorage.cookies);
+        }
+        var requestUrl = "https://passport.ekwing.com" + "/index/getpublickey";
+        post(
+          requestUrl,
+          {
+            type: "rsa",
+          },
+          function (r_data) {
+            var json = JSON.parse(r_data.body);
+            if (0 == json.errno) {
+              var publicKey = json.data.public;
+              var privateKey = json.data.key;
+            } else {
+              log("网络有问题！");
+              return;
+            }
+
+            console.log(publicKey, privateKey);
+
+            var user = inputs[0].value;
+            var pass = inputs[1].value;
+
+            params = {
+              account: user,
+              auto: 2,
+              passwd: pass,
+              utype: "2",
+              vcode: "",
+            };
+
+            passwd = $.md5(params.passwd);
+            publicKey = RSA.getPublicKey(publicKey);
+            passwd = RSA.encrypt(passwd, publicKey);
+
+            console.log(passwd);
+
+            var postData = [
+              "uname",
+              params.account,
+              "pw",
+              passwd,
+              "client_type",
+              "web",
+              "encrypt_key",
+              privateKey,
+              "encrypt_type",
+              "rsa",
+              "utype",
+              params.utype,
+              "mem_type",
+              2,
+            ];
+
+            post(
+              "https://passport.ekwing.com" + "/index/login",
+              postData,
+              function (data) {
+                json = JSON.parse(data.body);
+                if (json.errno) {
+                  log("密码或账号错误！");
+                  return;
+                }
+                log("登录成功！");
+
+                header = data.headers.split("\r\n");
+                var cookies = [];
+                for (var i = 0; i < header.length; i++) {
+                  if (header[i].indexOf("Set-Cookie") != -1) {
+                    cookies[cookies.length] = header[i]
+                      .split("Set-Cookie: ")[1]
+                      .split("; ")[0];
+                  }
+                }
+
+                cookies = localStorage.cookies = cookies.join("; ");
+                main(cookies);
+              }
+            );
+          }
+        );
+      }
+
+      function main(cookies) {
+        try {
+          post(
+            "https://www.ekwing.com/exam/student/getexamlist?page=1&type=0&mode_type=1",
+            [],
+            (data) => {
+              if (data.body == "") {
+                console.log("Token last. relogin!");
+                localStorage.cookies = "NUL";
+                return run(document.querySelectorAll("input"));
+              }
+              origin_exam_list = JSON.parse(data.body).data.list;
+
+              var exam_list = [];
+              for (const item of origin_exam_list) {
+                if (item.reback_type == 0) {
+                  exam_list.push({ id: item.self_id, _id: item.id });
+                }
+              }
+              console.log(exam_list);
+
+              function getAnswer(exam) {
+                post(
+                  `https://www.ekwing.com/exam/student/examload?id=${exam.id}&_id=${exam._id}`,
+                  "",
+                  (datas) => {
+                    body = datas.body.split("\n");
+                    for (var i = 0; i < body.length; i++) {
+                      if (
+                        body[i].indexOf("var base_info") != -1 &&
+                        body[i].indexOf("{};") == -1
+                      ) {
+                        console.log(body[i]);
+                        log("<hr />");
+                        log(
+                          "标题：" +
+                            eval(
+                              `"${
+                                body[i]
+                                  .split('"title":"')[1]
+                                  .split('","score":')[0]
+                              }"`
+                            )
+                        );
+                      }
+
+                      data = body[i];
+                      if (data.indexOf("spoken_list") != -1) {
+                        console.log("Find!");
+                        var spoken_list = JSON.parse(
+                          data.substr(data.indexOf("=") + 1).replaceAll(";", "")
+                        );
+                        window._ = spoken_list;
+                        var keys = Object.keys(spoken_list);
+                        var answer = "";
+                        function appendanswer(content) {
+                          log(content);
+                        }
+                        var ques_list;
+                        appendanswer("一，模仿朗读");
+                        appendanswer("自己看着念就完了");
+                        appendanswer("二，信息获取");
+                        ques_list = spoken_list[keys[1]].ques_list;
+                        for (var key in ques_list) {
+                          if (ques_list[key].answer[0][0] != undefined)
+                            appendanswer(
+                              Number(key) +
+                                1 +
+                                "." +
+                                ques_list[key].answer[0][0]
+                            );
+                        }
+                        appendanswer("三，回答问题");
+                        ques_list = spoken_list[keys[2]].ques_list;
+                        for (var key in ques_list) {
+                          if (ques_list[key].answer[0][0] != undefined)
+                            appendanswer(
+                              Number(key) +
+                                1 +
+                                "." +
+                                ques_list[key].answer[0][0]
+                            );
+                        }
+                        appendanswer("四，信息转述");
+                        ques_list = spoken_list[keys[3]].answer[0][0];
+                        appendanswer(ques_list);
+                        appendanswer("五，询问信息");
+                        ques_list = spoken_list[keys[4]].ques_list;
+                        for (var key in ques_list) {
+                          if (ques_list[key].answer[0][0] != undefined)
+                            appendanswer(
+                              Number(key) +
+                                1 +
+                                "." +
+                                ques_list[key].answer[0][0]
+                            );
+                        }
+
+                        break;
+                      }
+                    }
+                  },
+                  ["Cookie: " + cookies]
+                );
+              }
+
+              for (var i = 0; i < exam_list.length; i++)
+                getAnswer(exam_list[i]);
+              log("");
+            },
+            ["Cookie: " + cookies]
+          );
+        } catch (e) {
+          console.log(e);
+          log("出现错误！ 原因 1.你读完了 2.我的问题，请将以下内容截图给作者");
+          log(e.toString());
+          log(localStorage.cookies);
+        }
+      }
+    </script>
+  </body>
+</html>
